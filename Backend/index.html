@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Reverse Text</title>
+</head>
+<body>
+    <input type="text" id="input" placeholder="Type something...">
+    <button id="submit">Submit</button>
+    <div id="output"></div>
+
+    <script>
+        const input = document.getElementById('input');
+        const submit = document.getElementById('submit');
+        const output = document.getElementById('output');    // where we'll show the reversed text
+
+        submit.onclick = async () => {
+            const text = input.value;                           // read what the user typed
+            const res = await fetch('http://localhost:8000/reverse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })                  // send {"text": "..."} to the API
+            });
+            const data = await res.json();                      // parse {"reversed": "..."}
+            output.textContent = data.reversed;                 // show reversed text in the output div
+        };
+    </script>
+</body>
+</html>
+
