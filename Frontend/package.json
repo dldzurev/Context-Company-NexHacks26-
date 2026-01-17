@@ -1,0 +1,32 @@
+{
+    "name": "nexhacks26-chat",
+    "displayName": "NexHacks26 Chat",
+    "description": "A draggable chat webview that talks to a FastAPI backend.",
+    "version": "0.0.1",
+    "publisher": "nexhacks26",
+    "engines": {
+      "vscode": "^1.85.0"
+    },
+    "categories": ["Other"],
+    "activationEvents": ["onCommand:nexhacks26.openChat"],
+    "main": "./out/extension.js",
+    "contributes": {
+      "commands": [
+        {
+          "command": "nexhacks26.openChat",
+          "title": "NexHacks26: Open Chat"
+        }
+      ]
+    },
+    "scripts": {
+      "compile": "tsc -p .",
+      "watch": "tsc -watch -p .",
+      "vscode:prepublish": "npm run compile"
+    },
+    "devDependencies": {
+      "@types/node": "^20.11.30",
+      "@types/vscode": "^1.85.0",
+      "typescript": "^5.5.4"
+    }
+  }
+  
