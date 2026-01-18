@@ -1,156 +1,379 @@
-'''
 import os
-import warnings
-import google.generativeai as genai
+
+import json
+
+import inspect
+
+import requests
+
 from dotenv import load_dotenv
 
-# --- TOOL IMPORTS ---
-from tools_files import file_tools
-from tools_jira import jira_tools
-# from tools_slack import slack_tools 
 
-warnings.filterwarnings("ignore", category=FutureWarning)
-load_dotenv()
 
-# 1. CONFIGURE API
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY not found in .env file.")
-genai.configure(api_key=api_key)
+# --- EXPLICIT TOOL IMPORTS ---
 
-# 2. COMBINE TOOLS
-all_tools = file_tools + jira_tools 
+# We import functions directly to ensure we have the actual python objects
 
-# 3. INITIALIZE MODEL
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash-001", # switched to stable flash version
-    tools=all_tools
-)
-# 4. INITIALIZE CHAT SESSION (GLOBAL MEMORY)
-# We start it here so it persists across requestsList
-chat_session = model.start_chat(enable_automatic_function_calling=True)
-
-def agent_chat(user_message):
-    """
-    Sends a message to the existing chat session.
-    """
-    # FIX IS HERE: Declare global at the very top!
-    global chat_session 
-    
-    try:
-        # Now we can use it safely
-        response = chat_session.send_message(user_message)
-        return response.text
-    except Exception as e:
-        # If the chat session crashes (e.g. token limit or timeout), restart it
-        print(f"⚠️ Chat Error: {e}. Restarting memory...")
-        chat_session = model.start_chat(enable_automatic_function_calling=True)
-        
-        # Try one more time with the new session
-        try:
-            response = chat_session.send_message(user_message)
-            return response.text
-        except Exception as e2:
-            return f"Agent Error: {e2}"
-
-# TEST BLOCK
-if __name__ == "__main__":
-    print("--- Testing ContextLink Agent ---")
-    query = "Do I have any Jira tickets regarding a 'loan'? If so, give me the details of the most relevant one."
-    print(f"User: {query}")
-    print(f"Agent: {agent_chat(query)}")
-'''
-import os
-import time
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-
-# --- TOOL IMPORTS ---
 from tools_files import list_files, read_all_code_files
-from tools_jira import jira_tools 
-from tools_slack import slack_tools
+
+from tools_jira import search_jira_issues, get_jira_ticket
+
+from tools_slack import search_slack
+
+from tools_confluence import search_confluence_pages, get_confluence_page
+
+
 
 load_dotenv()
 
-# 1. INITIALIZE CLIENT
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-# 2. PREPARE TOOLS
-my_tools = [list_files, read_all_code_files] + jira_tools + slack_tools
 
-# 3. GLOBAL MEMORY
+# 1. CONFIGURATION
+
+# Add OPENROUTER_API_KEY=sk-or-v1-... to your .env file
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") 
+
+SITE_URL = "http://localhost:8000"
+
+SITE_NAME = "Context Co"
+
+
+
+# SELECT YOUR MODEL
+
+# options: "openai/gpt-4o", "google/gemini-2.0-flash-001", "anthropic/claude-3.5-sonnet"
+
+MODEL_NAME = "openai/gpt-4o" 
+
+
+
+# 2. TOOL REGISTRY
+
+# Map the string name the AI uses to the actual Python function
+
+function_map = {
+
+    "list_files": list_files,
+
+    "read_all_code_files": read_all_code_files,
+
+    "search_jira_issues": search_jira_issues,
+
+    "get_jira_ticket": get_jira_ticket,
+
+    "search_slack": search_slack,
+
+    "search_confluence_pages": search_confluence_pages,
+
+    "get_confluence_page": get_confluence_page
+
+}
+
+
+
+# 3. HELPER: Auto-Generate JSON Schemas for OpenRouter
+
+def get_function_schema(func):
+
+    """
+
+    Scrapes a Python function's signature to build the JSON schema 
+
+    that OpenRouter/OpenAI compatible APIs need.
+
+    """
+
+    type_map = {
+
+        str: "string",
+
+        int: "integer",
+
+        float: "number",
+
+        bool: "boolean",
+
+        list: "array",
+
+        dict: "object"
+
+    }
+
+    
+
+    sig = inspect.signature(func)
+
+    parameters = {
+
+        "type": "object",
+
+        "properties": {},
+
+        "required": []
+
+    }
+
+    
+
+    for name, param in sig.parameters.items():
+
+        # Skip 'self' if it somehow sneaked in
+
+        if name == "self": continue
+
+        
+
+        param_type = type_map.get(param.annotation, "string") 
+
+        
+
+        parameters["properties"][name] = {
+
+            "type": param_type,
+
+            "description": f"The {name} argument" 
+
+        }
+
+        
+
+        # If no default value, it is required
+
+        if param.default == inspect.Parameter.empty:
+
+            parameters["required"].append(name)
+
+
+
+    return {
+
+        "type": "function",
+
+        "function": {
+
+            "name": func.__name__,
+
+            "description": func.__doc__ or "No description provided.",
+
+            "parameters": parameters
+
+        }
+
+    }
+
+
+
+# Generate schemas once at startup
+
+tools_schema = [get_function_schema(f) for f in function_map.values()]
+
+
+
+# 4. GLOBAL MEMORY
+
 chat_history = []
 
+
+
 def agent_chat(user_message):
+
+    """
+
+    Main loop:
+
+    1. Send User Message -> AI
+
+    2. AI says "Call Tool X" -> We run Tool X
+
+    3. We send Tool Output -> AI
+
+    4. AI sends Final Answer -> User
+
+    """
+
     global chat_history
 
-    # Add User's message to history
-    chat_history.append(types.Content(
-        role="user",
-        parts=[types.Part.from_text(text=user_message)]
-    ))
 
-    # Config
-    generate_config = types.GenerateContentConfig(
-        tools=my_tools,
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(
-            disable=False,
-            maximum_remote_calls=15
-        ),
-        temperature=0.7
-    )
 
-    # --- RETRY LOOP FOR 503 ERRORS ---
-    max_retries = 3
-    for attempt in range(max_retries):
+    # Add User Message
+
+    chat_history.append({"role": "user", "content": user_message})
+
+
+
+    headers = {
+
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+
+        "HTTP-Referer": SITE_URL,
+
+        "X-Title": SITE_NAME,
+
+        "Content-Type": "application/json"
+
+    }
+
+
+
+    # Safety: Max 10 turns to prevent infinite loops
+
+    for _ in range(10):
+
+        payload = {
+
+            "model": MODEL_NAME,
+
+            "messages": chat_history,
+
+            "tools": tools_schema
+
+        }
+
+
+
         try:
-            response = client.models.generate_content(
-                model="gemini-3-flash-preview", 
-                contents=chat_history,
-                config=generate_config
+
+            # We use stream=False here for simplicity in the tool loop logic
+
+            response = requests.post(
+
+                "https://openrouter.ai/api/v1/chat/completions",
+
+                headers=headers,
+
+                data=json.dumps(payload)
+
             )
 
-            # Success!
-            response_text = response.text
+            response.raise_for_status()
+
+            data = response.json()
+
             
-            if response_text:
-                chat_history.append(types.Content(
-                    role="model",
-                    parts=[types.Part.from_text(text=response_text)]
-                ))
-                yield response_text
+
+            # Extract the choice
+
+            choice = data["choices"][0]
+
+            message = choice["message"]
+
+            
+
+            # --- CASE 1: AI WANTS TO USE A TOOL ---
+
+            if message.get("tool_calls"):
+
+                # 1. Append the AI's "intent" to history
+
+                chat_history.append(message)
+
+                
+
+                # 2. Run every tool requested
+
+                for tool_call in message["tool_calls"]:
+
+                    func_name = tool_call["function"]["name"]
+
+                    call_id = tool_call["id"]
+
+                    
+
+                    # Parse arguments safely
+
+                    try:
+
+                        args = json.loads(tool_call["function"]["arguments"])
+
+                    except:
+
+                        args = {}
+
+                    
+
+                    # Notify CLI
+
+                    yield f"🛠️ Calling Tool: {func_name}...\n"
+
+                    
+
+                    # Execute Python Function
+
+                    if func_name in function_map:
+
+                        try:
+
+                            # Run the tool!
+
+                            result_obj = function_map[func_name](**args)
+
+                            result_content = str(result_obj)
+
+                        except Exception as e:
+
+                            result_content = f"Tool Error: {str(e)}"
+
+                    else:
+
+                        result_content = f"Error: Tool '{func_name}' not found."
+
+
+
+                    # 3. Append the *result* to history
+
+                    chat_history.append({
+
+                        "role": "tool",
+
+                        "tool_call_id": call_id,
+
+                        "name": func_name,
+
+                        "content": result_content
+
+                    })
+
+                
+
+                # Loop continues to send the tool outputs back to the AI
+
+                continue 
+
+            
+
+            # --- CASE 2: AI HAS A FINAL ANSWER ---
+
             else:
-                yield "✅ Task completed."
-            
-            return # Exit function on success
+
+                final_content = message["content"]
+
+                chat_history.append({"role": "assistant", "content": final_content})
+
+                yield final_content
+
+                return # We are done
+
+
 
         except Exception as e:
-            error_msg = str(e)
-            
-            # CHECK FOR 503 (Overloaded) OR 429 (Quota)
-            if "503" in error_msg or "overloaded" in error_msg.lower():
-                print(f"⚠️ Google Server Busy (503). Retrying {attempt+1}/{max_retries}...")
-                time.sleep(3) # Wait 3 seconds
-                continue # Try again
-            
-            elif "429" in error_msg:
-                print(f"⚠️ Quota hit. Waiting 10s...")
-                time.sleep(10)
-                # Let loop retry
-                continue 
-            
-            else:
-                # Real crash
-                print(f"❌ Error: {error_msg}")
-                yield f"⚠️ Agent Error: {error_msg}"
-                return
 
-    # If we exit the loop, we failed 3 times
-    yield "❌ Servers are too busy right now. Please try again in a minute."
+            error_msg = f"❌ OpenRouter Error: {str(e)}"
+
+            print(error_msg)
+
+            yield error_msg
+
+            return
+
+
 
 # TEST BLOCK
+
 if __name__ == "__main__":
-    print("--- Testing New GenAI Client ---")
-    for chunk in agent_chat("Hello"):
+
+    print("--- Testing OpenRouter Agent ---")
+
+    for chunk in agent_chat("Find the latest Jira ticket about 'login'"):
+
         print(chunk)

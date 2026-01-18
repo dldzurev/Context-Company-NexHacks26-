@@ -88,9 +88,9 @@ function getWebviewHtml() {
       --accentBg: rgba(125,211,252,0.18);
       --accentBorder: rgba(125,211,252,0.35);
 
-      /* Bot Bubble (Greyish) */
-      --botBg: rgba(255, 255, 255, 0.08);
-      --botBorder: rgba(255, 255, 255, 0.15);
+      /* Data Card (The Grey Box) */
+      --cardBg: rgba(30, 35, 45, 0.6);
+      --cardBorder: rgba(255, 255, 255, 0.15);
     }
 
     body {
@@ -142,7 +142,7 @@ function getWebviewHtml() {
       overflow: auto;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 16px;
     }
 
     #messages::-webkit-scrollbar { width: 10px; }
@@ -154,16 +154,71 @@ function getWebviewHtml() {
     }
 
     .msg {
-      max-width: 88%;
+      max-width: 90%;
       font-size: 14px;
-      line-height: 1.45;
-      white-space: pre-wrap;
+      line-height: 1.5;
       word-break: break-word;
-      padding: 10px 12px;
+    }
+
+    .me {
+      align-self: flex-end;
+      background: var(--accentBg);
+      border: 1px solid var(--accentBorder);
+      color: var(--text);
+      padding: 10px 14px;
       border-radius: 14px;
     }
 
-    /* CLI Banner Style */
+    .bot {
+      align-self: flex-start;
+      color: rgba(255,255,255,0.95);
+      padding-left: 4px;
+    }
+
+    /* THE GREY BOX */
+    .data-card {
+      background: var(--cardBg);
+      border: 1px solid var(--cardBorder);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 8px 0;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    /* CUSTOM FORMATTING STYLES */
+    
+    /* Jira: Simple Bullet */
+    .jira-row {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 6px;
+        color: rgba(255,255,255,0.9);
+    }
+    .jira-bullet { margin-right: 8px; color: var(--accent); }
+
+    /* Slack: User/Header + Message Body */
+    .slack-container {
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .slack-container:last-child { border-bottom: none; margin-bottom: 0; }
+
+    .slack-header {
+        font-size: 0.85em;
+        color: var(--accent);
+        margin-bottom: 4px;
+        font-weight: 600;
+        opacity: 0.9;
+    }
+    .slack-msg {
+        color: rgba(255,255,255,0.85);
+        white-space: pre-wrap;
+    }
+    
+    /* Banner */
     .banner {
         align-self: center;
         width: 100%;
@@ -173,29 +228,13 @@ function getWebviewHtml() {
     }
     .banner pre {
         font-family: 'Courier New', Courier, monospace;
-        font-size: 5px; /* Tiny font to make the wider banner fit */
+        font-size: 5px; 
         font-weight: bold;
         line-height: 1.1;
         white-space: pre;
         overflow-x: hidden; 
         margin: 0;
         text-align: center;
-    }
-
-    /* User Message (Right / Blue) */
-    .me {
-      align-self: flex-end;
-      background: var(--accentBg);
-      border: 1px solid var(--accentBorder);
-      color: var(--text);
-    }
-
-    /* Bot Message (Left / Grey Box) */
-    .bot {
-      align-self: flex-start;
-      background: var(--botBg);
-      border: 1px solid var(--botBorder);
-      color: rgba(255,255,255,0.92);
     }
 
     #composer {
@@ -262,7 +301,6 @@ function getWebviewHtml() {
 
     let isGenerating = false;
 
-    // --- ASCII ART BANNER (Corrected Spelling) ---
     const BANNER_ART = \`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
@@ -305,6 +343,108 @@ function getWebviewHtml() {
       messagesEl.appendChild(d);
     }
 
+    // --- STRICT DATA FORMATTER ---
+    function formatDataContent(rawText) {
+        // Remove all markdown bolding (**text**) globally first
+        const cleanText = rawText.replace(/\\*\\*/g, ""); 
+        
+        const lines = cleanText.split('\\n');
+        let htmlOutput = "";
+        let foundData = false;
+
+        lines.forEach(line => {
+            if (!line.trim()) return;
+
+            // 1. JIRA MATCH
+            // Pattern in tools_jira.py: "Ticket: KEY | Status: STATUS | Summary: TEXT | Link: URL"
+            // We want to extract Status and Summary only.
+            // Regex explanation:
+            // Ticket:.*?Status:\\s*([^|]+)  -> Capture Status (Group 1)
+            // .*?Summary:\\s*([^|]+)       -> Capture Summary (Group 2)
+            const jiraRegex = /Ticket:.*?Status:\s*([^|]+).*?Summary:\s*([^|]+)/i;
+            const jiraMatch = line.match(jiraRegex);
+            
+            if (jiraMatch) {
+                foundData = true;
+                const status = jiraMatch[1].trim();
+                const summary = jiraMatch[2].trim();
+                
+                // Requested Format: "- Summary - Status"
+                htmlOutput += \`
+                <div class="jira-row">
+                    <span class="jira-bullet">-</span>
+                    <span>\${summary} - \${status}</span>
+                </div>\`;
+                return;
+            }
+
+            // 2. SLACK MATCH
+            // Pattern in tools_slack.py: "[TIME] Channel: #CH | User: NAME | Msg: TEXT"
+            // We want: NAME #CH TIME \n TEXT
+            // Regex explanation:
+            // \\[([^\]]+)\\]             -> Capture Time (Group 1)
+            // .*?Channel:\\s*([^|]+)     -> Capture Channel (Group 2)
+            // .*?User:\\s*([^|]+)        -> Capture User (Group 3)
+            // .*?Msg:\\s*(.*)            -> Capture Message (Group 4)
+            const slackRegex = /\\[([^\]]+)\\].*?Channel:\s*([^|]+).*?User:\s*([^|]+).*?Msg:\s*(.*)/i;
+            const slackMatch = line.match(slackRegex);
+            
+            if (slackMatch) {
+                foundData = true;
+                const time = slackMatch[1].trim();
+                const channel = slackMatch[2].trim();
+                const user = slackMatch[3].trim();
+                const msg = slackMatch[4].trim();
+
+                // Requested Format: "User #Channel Time <newline> Message"
+                htmlOutput += \`
+                <div class="slack-container">
+                    <div class="slack-header">\${user} #\${channel} \${time}</div>
+                    <div class="slack-msg">\${msg}</div>
+                </div>\`;
+                return;
+            }
+        });
+
+        // If we found valid data rows, return them.
+        // If we found NO data rows (just "Here is the list..."), return EMPTY STRING.
+        // This effectively hides the "extra text from you".
+        if (foundData) {
+            return htmlOutput;
+        } else {
+            // Fallback: If it's code but not our specific formats, just print it plain
+            // but strip the first line if it's generic conversational text.
+            return rawText.replace(/</g, "&lt;");
+        }
+    }
+
+    function parseMarkdown(text) {
+      // 1. Separate code blocks from normal text
+      const parts = text.split(/(\`\`\`[\\s\\S]*?\`\`\`)/g);
+
+      return parts.map(part => {
+        if (part.startsWith("\`\`\`")) {
+             // Remove backticks
+             const content = part.slice(3, -3);
+             
+             // Run our strict formatter
+             const formatted = formatDataContent(content);
+             
+             // Only render the grey box if there is actual content
+             if (formatted.trim().length > 0 && formatted.includes("div")) {
+                 return \`<div class="data-card">\${formatted}</div>\`;
+             } else {
+                 return ""; // Hide empty/irrelevant code blocks
+             }
+        } else {
+             // Conversational text (outside grey box)
+             return part
+                .replace(/</g, "&lt;")
+                .replace(/\\n/g, "<br>");
+        }
+      }).join("");
+    }
+
     async function sendMessage() {
       if (isGenerating) return; 
       const text = inputEl.value.trim();
@@ -333,12 +473,16 @@ function getWebviewHtml() {
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        let fullText = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          
           const chunk = decoder.decode(value, { stream: true });
-          botDiv.textContent += chunk;
+          fullText += chunk;
+          
+          botDiv.innerHTML = parseMarkdown(fullText);
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
@@ -362,7 +506,7 @@ function getWebviewHtml() {
     addBanner();
     setTimeout(() => {
         const welcomeDiv = createMsgDiv("bot");
-        welcomeDiv.textContent = "System Ready. How can I help you today?";
+        welcomeDiv.textContent = "System Ready. Ask me to 'Search Jira' or 'Find Slack messages'.";
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }, 500);
 
