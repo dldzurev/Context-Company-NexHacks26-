@@ -69,6 +69,7 @@ from google.genai import types
 # --- TOOL IMPORTS ---
 from tools_files import list_files, read_all_code_files
 from tools_jira import jira_tools 
+from tools_slack import slack_tools
 
 load_dotenv()
 
@@ -76,7 +77,7 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # 2. PREPARE TOOLS
-my_tools = [list_files, read_all_code_files] + jira_tools
+my_tools = [list_files, read_all_code_files] + jira_tools + slack_tools
 
 # 3. GLOBAL MEMORY
 chat_history = []

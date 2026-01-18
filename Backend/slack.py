@@ -6,7 +6,8 @@ import argparse
 from datetime import datetime, timezone
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-
+from dotenv import load_dotenv
+load_dotenv()
 # File to store usernames locally
 CACHE_FILE = "slack_users_cache.json"
 
