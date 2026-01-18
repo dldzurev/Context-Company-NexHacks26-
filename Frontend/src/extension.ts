@@ -1,26 +1,9 @@
 import * as vscode from "vscode";
 
-/**
- * MUST match package.json:
- * contributes.views -> id
- */
 const CHAT_VIEW_ID = "nexhacks26.chatView";
-
-/**
- * MUST match package.json:
- * contributes.viewsContainers.activitybar -> id
- *
- * VS Code auto-creates a command to focus this view container:
- * workbench.view.extension.<CONTAINER_ID>
- */
 const CONTAINER_ID = "nexhacks26Container";
 
 export function activate(context: vscode.ExtensionContext) {
-  /**
-   * Register the sidebar WebviewViewProvider.
-   * If this is not registered (or the ID doesn't match), you'll see:
-   * "There is no data provider registered..."
-   */
   const provider = new NexHacksChatViewProvider(context);
 
   context.subscriptions.push(
@@ -29,10 +12,6 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  /**
-   * Optional command to focus/open the chat view container quickly
-   * (like Cursor/Copilot feel).
-   */
   context.subscriptions.push(
     vscode.commands.registerCommand("nexhacks26.openChat", async () => {
       await vscode.commands.executeCommand(`workbench.view.extension.${CONTAINER_ID}`);
@@ -42,40 +21,18 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
-/**
- * Provides the actual sidebar view content (webview).
- */
 class NexHacksChatViewProvider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView) {
-    /**
-     * Webview permissions:
-     * enableScripts: required for fetch() + UI logic
-     */
-    webviewView.webview.options = {
-      enableScripts: true
-    };
-
-    /**
-     * Set the HTML for the sidebar view.
-     * This is basically your previous webview HTML, but "docked"
-     * (no floating draggable box needed).
-     */
+    webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = getWebviewHtml();
   }
 }
 
-/**
- * Webview HTML (Cursor-ish look, docked sidebar)
- */
 function getWebviewHtml(): string {
   const nonce = String(Math.random()).slice(2);
-
-  /**
-   * CSP:
-   * connect-src MUST allow your FastAPI backend or fetch() will fail.
-   */
+  
   const csp = [
     "default-src 'none';",
     "img-src data:;",
@@ -90,10 +47,10 @@ function getWebviewHtml(): string {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NexHacks26 Chat</title>
+  <title>NexHacks Chat</title>
 
   <style>
-    :root{
+    :root {
       --bg: #0b0f17;
       --panel: rgba(18, 22, 34, 0.78);
       --border: rgba(255,255,255,0.10);
@@ -101,16 +58,16 @@ function getWebviewHtml(): string {
       --text: rgba(255,255,255,0.92);
       --muted: rgba(255,255,255,0.70);
 
-      /* Cursor-ish accent */
+      /* User Bubble (Blueish) */
       --accent: #7dd3fc;
       --accentBg: rgba(125,211,252,0.18);
       --accentBorder: rgba(125,211,252,0.35);
 
-      /* Assistant style */
-      --assistantBar: rgba(255,255,255,0.18);
+      /* Bot Bubble (Greyish) */
+      --botBg: rgba(255, 255, 255, 0.08);
+      --botBorder: rgba(255, 255, 255, 0.15);
     }
 
-    /* In sidebar: fill the entire view */
     body {
       margin: 0;
       height: 100vh;
@@ -123,7 +80,6 @@ function getWebviewHtml(): string {
       color: var(--text);
     }
 
-    /* Main container (docked, not draggable) */
     #chatRoot {
       height: 100vh;
       display: flex;
@@ -135,7 +91,6 @@ function getWebviewHtml(): string {
       backdrop-filter: blur(14px);
     }
 
-    /* Header */
     #header {
       padding: 12px 14px;
       border-bottom: 1px solid var(--border);
@@ -146,7 +101,6 @@ function getWebviewHtml(): string {
       letter-spacing: 0.2px;
     }
 
-    /* Status pill */
     #status {
       font-size: 12px;
       font-weight: 600;
@@ -157,7 +111,6 @@ function getWebviewHtml(): string {
       background: rgba(255,255,255,0.04);
     }
 
-    /* Message list */
     #messages {
       flex: 1;
       padding: 14px;
@@ -181,28 +134,45 @@ function getWebviewHtml(): string {
       line-height: 1.45;
       white-space: pre-wrap;
       word-break: break-word;
-    }
-
-    /* User bubble (right) */
-    .me {
-      align-self: flex-end;
       padding: 10px 12px;
       border-radius: 14px;
+    }
+
+    /* CLI Banner Style */
+    .banner {
+        align-self: center;
+        width: 100%;
+        color: var(--accent);
+        margin-bottom: 10px;
+        opacity: 0.9;
+    }
+    .banner pre {
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 5px; /* Tiny font to make the wider banner fit */
+        font-weight: bold;
+        line-height: 1.1;
+        white-space: pre;
+        overflow-x: hidden; 
+        margin: 0;
+        text-align: center;
+    }
+
+    /* User Message (Right / Blue) */
+    .me {
+      align-self: flex-end;
       background: var(--accentBg);
       border: 1px solid var(--accentBorder);
       color: var(--text);
     }
 
-    /* Assistant message (left) — not a textbox */
+    /* Bot Message (Left / Grey Box) */
     .bot {
       align-self: flex-start;
-      max-width: 92%;
-      padding: 2px 0 2px 12px;
-      border-left: 3px solid var(--assistantBar);
-      color: rgba(255,255,255,0.88);
+      background: var(--botBg);
+      border: 1px solid var(--botBorder);
+      color: rgba(255,255,255,0.92);
     }
 
-    /* Composer */
     #composer {
       padding: 12px;
       border-top: 1px solid var(--border);
@@ -227,7 +197,6 @@ function getWebviewHtml(): string {
       box-shadow: 0 0 0 3px rgba(125,211,252,0.15);
     }
 
-    /* Send button pops */
     #send {
       height: 42px;
       padding: 0 14px;
@@ -246,22 +215,19 @@ function getWebviewHtml(): string {
 <body>
   <div id="chatRoot">
     <div id="header">
-      <div>NexHacks Chat</div>
+      <div>NexHacks Agent</div>
       <div id="status">idle</div>
     </div>
 
     <div id="messages"></div>
 
     <div id="composer">
-      <input id="input" placeholder="Type a message..." />
+      <input id="input" placeholder="Ask about Jira, Slack, or Code..." />
       <button id="send">Send</button>
     </div>
   </div>
 
   <script nonce="${nonce}">
-    /**
-     * FastAPI endpoint
-     */
     const API_URL = "http://127.0.0.1:8000/chat";
 
     const statusEl = document.getElementById("status");
@@ -269,23 +235,64 @@ function getWebviewHtml(): string {
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
 
+    let isGenerating = false;
+
+    // --- ASCII ART BANNER (Corrected Spelling) ---
+    const BANNER_ART = \`
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║  ██████╗ ██████╗ ███╗   ██╗████████╗███████╗██╗  ██╗████████╗ ║
+║ ██╔════╝██╔═══██╗████╗  ██║╚══██╔══╝██╔════╝╚██╗██╔╝╚══██╔══╝ ║
+║ ██║     ██║   ██║██╔██╗ ██║   ██║   █████╗   ╚███╔╝    ██║    ║
+║ ██║     ██║   ██║██║╚██╗██║   ██║   ██╔══╝   ██╔██╗    ██║    ║
+║ ╚██████╗╚██████╔╝██║ ╚████║   ██║   ███████╗██╔╝ ██╗   ██║    ║
+║  ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═╝   ╚═╝    ║
+║                                                               ║
+║          ██████╗  █████                                       ║
+║         ██╔═══   ██╔══██╗                                     ║
+║         ██║      ██║  ██║                                     ║
+║         ██║      ██║  ██║                                     ║
+║         ╚██████   ██████                                      ║
+║          ╚═════╝  ╚════╝                                      ║
+║                                                               ║
+║ ╔═══════════════════════════════════════════════════════════╗ ║
+║ ║      🧠 AI-Powered Context Assistant                      ║ ║
+║ ║      🔗 Connect | Search | Understand                     ║ ║
+║ ╚═══════════════════════════════════════════════════════════╝ ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝\`;
+
     function setStatus(s) { statusEl.textContent = s; }
 
-    function addMsg(text, who) {
+    function createMsgDiv(who) {
       const d = document.createElement("div");
       d.className = "msg " + who;
-      d.textContent = text;
       messagesEl.appendChild(d);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return d;
+    }
+
+    function addBanner() {
+      const d = document.createElement("div");
+      d.className = "banner";
+      const pre = document.createElement("pre");
+      pre.textContent = BANNER_ART;
+      d.appendChild(pre);
+      messagesEl.appendChild(d);
     }
 
     async function sendMessage() {
+      if (isGenerating) return; 
       const text = inputEl.value.trim();
       if (!text) return;
 
       inputEl.value = "";
-      addMsg(text, "me");
-      setStatus("sending...");
+      
+      const userDiv = createMsgDiv("me");
+      userDiv.textContent = text;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      
+      setStatus("thinking...");
+      isGenerating = true;
 
       try {
         const res = await fetch(API_URL, {
@@ -294,37 +301,46 @@ function getWebviewHtml(): string {
           body: JSON.stringify({ message: text })
         });
 
-        // non-200 => show error bubble
-        if (!res.ok) {
-          addMsg("error", "bot");
-          setStatus("error");
-          return;
+        if (!res.ok) throw new Error("Backend Error " + res.status);
+
+        const botDiv = createMsgDiv("bot");
+        setStatus("generating...");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          botDiv.textContent += chunk;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        const data = await res.json();
-        const reply = (data && typeof data.reply === "string") ? data.reply : "";
+        setStatus("idle");
 
-        // Only allow expected replies
-        const allowed = new Set(["hello world", "bye world", "uhhhhh what?"]);
-
-        if (allowed.has(reply)) {
-          addMsg(reply, "bot");
-          setStatus("idle");
-        } else {
-          addMsg("error", "bot");
-          setStatus("error");
-        }
-
-      } catch {
-        // backend unreachable => no bot bubble
+      } catch (err) {
+        const errDiv = createMsgDiv("bot");
+        errDiv.textContent = "Error connecting to Agent: " + err.message;
+        errDiv.style.color = "#ff6b6b";
         setStatus("offline");
+      } finally {
+        isGenerating = false;
       }
     }
 
     sendBtn.addEventListener("click", sendMessage);
-    inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+    inputEl.addEventListener("keydown", (e) => { 
+      if (e.key === "Enter") sendMessage(); 
+    });
 
-    addMsg("Type: hi → hello world, bye → bye world, anything else → uhhhhh what?", "bot");
+    addBanner();
+    setTimeout(() => {
+        const welcomeDiv = createMsgDiv("bot");
+        welcomeDiv.textContent = "System Ready. How can I help you today?";
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }, 500);
+
   </script>
 </body>
 </html>`;
